@@ -1,0 +1,1556 @@
+{% load static %}
+<!DOCTYPE html>
+
+<html>
+<head lang="ja">
+    <meta charset="UTF-8">
+    <title>StressFreeSns</title>
+    <link rel='stylesheet' type='text/css' href="{% static 'style.css' %}"/>
+    
+    <!-- firebase関連-->
+    <!-- The core Firebase JS SDK is always required and must be listed first -->
+    <script src="https://www.gstatic.com/firebasejs/7.13.2/firebase-app.js"></script>
+    <!-- TODO: Add SDKs for Firebase products that you want to use
+     https://firebase.google.com/docs/web/setup#available-libraries -->
+    <script src="https://www.gstatic.com/firebasejs/7.13.2/firebase-analytics.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/7.13.2/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/7.13.2/firebase-storage.js"></script>
+    <!--<script src="./firebase.js"></script>-->
+    <script type="text/javascript" src="{% static 'firebase.js' %}"></script>
+  
+    <!--jsファイルの読み込みがうまくいかないので直接書く-->
+    <!--<script type='text/javascript' src="{% static 'script.js' %}"></script>-->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.0/umd/popper.min.js" integrity="sha384-cs/chFZiN24E4KMATLdqdvsezGxaGsi4hLGOzlXwp5UZB1LY//20VyM2taTB4QvJ" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.1.0/js/bootstrap.min.js" integrity="sha384-uefMccjFJAIv6A+rW+L4AHf99KvxDjWSu1z9VI8SKNVmz4sk7buKt/6v9KI65qnm" crossorigin="anonymous"></script>
+  
+    <script>
+        var post_num = 0;
+        
+        //idsは各投稿のidを格納するリスト
+        var ids = new Array();
+        var rt_ids = new Array();
+        var posts = new Array();
+      
+        var user_data_ref = db.ref('user_data');
+        var post_data_ref = db.ref('post_data');
+      
+        // スクロール回数の判定用
+        var scroll_check = 0;
+        // スクロール回数の判定用(投稿のIDの取得用)
+        var scroll_check_whole = 0;
+        
+        // ユーザIDと名前の取得
+        //var login_user_id = document.cookie.split(";")[2].split("=")[1];
+        var login_user_id = document.cookie.split("user_id=")[1].split(";")[0];
+        console.log(document.cookie);
+        console.log("login: " + login_user_id);
+        var login_user_name = '';
+        var login_user_following = new Array();
+        var login_user_last_check = '';
+        var login_user_profile = '';
+        user_data_ref.child(login_user_id).once('value', function(snapshot) {
+            // ユーザ名の設定
+            login_user_name = snapshot.val().name;
+            // ユーザのフォローリスト
+            login_user_following = snapshot.val().follow_list.split(';');
+            login_user_following.pop();
+            // 最後に見た投稿
+            login_user_last_check = snapshot.val().last_check;
+            // プロフィール
+            login_user_profile = snapshot.val().profile;
+            
+            console.log(snapshot.val());
+            console.log(login_user_following);
+        });
+        
+        // アイコンのurlを取得
+        var icon_url = '';
+        var storageRef = firebase.storage().ref(login_user_id + '/icon/icon.png');
+        var loadIcon = new Promise(function(resolve, reject) {
+            storageRef.getDownloadURL().then(function(url) {
+                icon_url = url;
+                resolve(icon_url);
+            })
+            .catch(function() {
+                reject(new Error("Error."));
+            });
+        });
+        // タイトル部分にアイコン画像を表示
+        loadIcon.then(function(icon_url) {
+            document.getElementById("icon_top").src = icon_url;
+        });
+        loadIcon.catch(function(e) {
+            // アイコンが未設定の場合はデフォルトアイコンを使用
+            var storageRef = firebase.storage().ref('__default__/icon/icon.png');
+            var loadIcon = new Promise(function(resolve, reject) {
+                storageRef.getDownloadURL().then(function(url) {
+                    icon_url = url;
+                    resolve(icon_url);
+                });
+            });
+            // タイトル部分にアイコン画像を表示
+            loadIcon.then(function(icon_url) {
+                document.getElementById("icon_top").src = icon_url;
+            });
+        })
+      
+        // fadeIn()とfadeOut()の引数。モーダルウィンドウのフェードスピードを指定する
+        var fadeSpeed = 0;
+        // クリックした投稿のIDを格納
+        var reply_post_id = "";
+        // リプライを送るときに使う変数
+        var reply_id = "";
+        var reply_user_id = "";
+    </script>
+
+</head>
+    
+<body>
+    
+    <script>
+        
+        // 操作ログの取得
+        function logging(id, about, data1, data2) {
+            // 時間記録用
+            var dt = new Date();
+            var unixtime = dt.getTime();
+            var weeks = new Array('Sun','Mon','Tue','Wed','Thu','Fri','Sat');
+            var year = dt.getYear();
+            if(year < 2000) { year += 1900; }
+            var time = year+"/"+String(dt.getMonth()+1)+"/"+dt.getDate()+"("+weeks[dt.getDay()]+") "+dt.getHours()+":"+dt.getMinutes()+":"+
+                dt.getSeconds()+"."+dt.getMilliseconds();
+            
+            $.ajax({
+                url: "{% url 'myapp:logging' %}",
+                method: 'GET',
+                data: {"time":time, "user_id":id, "about":about, "data1":data1, "data2":data2},
+                dataType: "text",
+                contentType: "application/json",
+                beforeSend: function(xhr, settings) {
+                    if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+                        xhr.setRequestHeader("X-CSRFToken", csrf_token);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.log("error")
+                }
+            })
+            .done(function(data) {
+               console.log("Success a logging."); 
+            });
+        };
+        
+        
+        // 選択した投稿のidとテキストを記録
+        var selected_id = "";
+        var selected_text = "";
+        
+        
+        // 投稿のIDを渡すとTL及びidsとpostsからそのIDの投稿を削除する関数
+        function removePost(id) {
+            document.getElementById(id).closest(".twitter__block").remove();
+            
+            ids.some(function(v, i){
+                if (v==id) ids.splice(i,1);    
+            });
+            posts.some(function(v, i){
+                if (v.id==id) posts.splice(i,1);
+            });
+            
+            console.log(id + " is deleted.");
+            logging(login_user_id, "Delete a post on Firebase", id, "");
+        }
+        // firebase上で投稿が削除されるとremovePost()が実行される
+        post_data_ref.on("child_removed", (snapshot) => {
+            var delete_id = snapshot.val().id;
+            removePost(delete_id);
+            
+            if(snapshot.val().rt_param == snapshot.val().rt_by) {
+                // 削除された投稿がある投稿へのリプライだった場合、投稿先の投稿の情報を更新する
+                // ただしリツイート削除時にはここの処理は行わない
+                var reply_to_id = snapshot.val().reply_to;
+                var root_reply_num = 0;
+                var reply_to_reply_post = "";
+                if(reply_to_id != "") {
+                    post_data_ref.child(String(reply_to_id)).once('value', function(snapshot) {
+                        root_reply_num = snapshot.val().reply_num;
+                        reply_to_reply_post = snapshot.val().reply_post;
+                    });
+
+                    post_data_ref.child(reply_to_id).update({reply_num: root_reply_num - 1});
+                    post_data_ref.child(reply_to_id).update({reply_post: reply_to_reply_post.replace(";"+delete_id,"")});
+
+                    posts.some(function(v, i){
+                        if (v.id==reply_to_id) {
+                            v.reply_post = reply_to_reply_post.replace(";"+delete_id, "");
+                            v.reply_num = root_reply_num - 1;
+                        }
+                    });
+
+                }
+            }
+            
+        });
+        
+        
+        // リプライアイコンを押した時の動作
+        function reply(id, user_id) {
+            reply_id = id;
+            reply_user_id = "@" + user_id + "<br>";
+            logging(login_user_id, "tap a reply icon", id, user_id);
+            
+            // 投稿アイコンを非表示にする
+            document.getElementById("post_area").style.visibility = "hidden";
+            $('.modal').fadeOut(fadeSpeed);
+            $('.post-modal').fadeIn(fadeSpeed);
+            return false;
+        }
+        /*
+        function reply_post() {
+          
+            post_data_ref.child(String(id)).once('value', function(snapshot) {
+                // その投稿のリプライに自身のIDが無ければ追記
+                if(snapshot.val().reply_list.indexOf(login_user_id) == -1) {
+                    post_data_ref.child(String(id)).update({reply_num: snapshot.val().reply_num + 1});
+                    post_data_ref.child(String(id)).update({reply_list: snapshot.val().reply_list += login_user_id + ";"});
+                } else {
+                    post_data_ref.child(String(id)).update({reply_num: snapshot.val().reply_num - 1});
+                    post_data_ref.child(String(id)).update({reply_list: snapshot.val().reply_list.replace(login_user_id + ";", "")});
+                }
+                changeIconColor(id, "reply");
+            });
+            //document.getElementById("bubble-"+id).innerText = Number(document.getElementById("bubble-"+id).innerText) + 1;
+        };
+        */
+        // リツイートアイコンを押した時の動作 ※ここだけ渡される値が"rt_by"なので注意
+        function rt(rt_by, key="no root") {
+            post_data_ref.child(String(rt_by)).once('value', function(snapshot) {
+                
+                // リツイートした投稿(※自分が投稿した形になっている)を削除したい場合は
+                // その自身の投稿のRTボタンを押せばRT投稿を削除できる
+                if (String(rt_by) != snapshot.val().id) {
+                  // ここで想定しているのは"rt後に新たに作成された投稿のrtボタンを押した時、自身の投稿を削除したい(本元の編集は再帰で実現する)"
+                  console.log("Deleted.");
+                  logging(login_user_id, "delete a rt", rt_by, "");
+                  post_data_ref.child(snapshot.val().rt_param).update({rt_param: snapshot.val().rt_param});
+                    
+                  post_data_ref.child(String(rt_by)).remove();
+                  rt(snapshot.val().id, "root"); // 元ツイのも取り消しを反映させる
+                    
+                  posts.some(function(v, i){
+                      if (v.id==snapshot.val().rt_param) {
+                          v.rt_param = snapshot.val().rt_param;
+                      }
+                  });
+                  
+                // 元のツイート本体のrtを押した場合の処理はこっち
+                } else {
+                    // ここで想定しているのは"rtボタンを押したときに元の投稿と同一の情報を持つ形で新規に投稿を作成したい"
+                    // その投稿のrt_listに自身のIDが無ければ追記
+                    if(snapshot.val().rt_list.indexOf(login_user_id) == -1) {
+                        post_data_ref.child(String(rt_by)).update({rt_num: snapshot.val().rt_num + 1});
+                        post_data_ref.child(String(rt_by)).update({rt_list: snapshot.val().rt_list += login_user_id + ";"});
+                        changeIconColor(rt_by, "rt");
+                        
+                        posts.some(function(v, i){
+                            if (v.id==rt_by) {
+                                v.rt_list = v.rt_list + login_user_id + ";";
+                                v.rt_num = v.rt_num + 1;
+                            }
+                        });
+
+                        // 元のツイートと同内容のものを新たなID名で拡散者が投稿(ツイートID自体は元のもの)
+                        var dt = new Date();
+                        var unixtime = dt.getTime();
+                        console.log('Retweet');
+                        logging(login_user_id, "rt", rt_by, "");
+                      
+                        var post_data_id = post_data_ref.push().key;
+                        post_data_ref.child(String(post_data_id)).set({
+                            // name: $('#name').val(),
+                            id: snapshot.val().id,
+                            icon: snapshot.val().icon,
+                            user_name: snapshot.val().user_name,
+                            user_id: snapshot.val().user_id,
+                            date_str: snapshot.val().date_str,
+                            date: snapshot.val().date,
+                            update: unixtime,
+                            text: "<span style='float:right;margin-right:20px;font-size:90%;'><b>" + "Retweeted by " + login_user_name + "</span></b><br>" + snapshot.val().text,
+                            pic: snapshot.val().pic,
+                            reply_num: snapshot.val().reply_num,
+                            rt_num: snapshot.val().rt_num + 1,
+                            fav_num: snapshot.val().fav_num,
+                            reply_list: snapshot.val().reply_list,
+                            rt_list: snapshot.val().rt_list,
+                            fav_list: snapshot.val().fav_list,
+                            rt_by: String(post_data_id),
+                            rt_param: snapshot.val().rt_param,
+                            reply_post: snapshot.val().reply_post,
+                            reply_to: snapshot.val().reply_to,
+                            dislike_num: snapshot.val().dislike_num
+                        });
+                        changeIconColor(post_data_id, "rt");
+                        // rt後に本元の投稿のrt_byを新たに作成した投稿のものに変更する
+                        post_data_ref.child(rt_by).update({rt_param: String(post_data_id)});
+                        
+                        posts.some(function(v, i){
+                            if (v.id==rt_by) {
+                                v.rt_param = post_data_id;
+                            }
+                        });
+
+                    } else {
+                        if(key == "root") {
+                            // ここで想定しているのは"rt後に新たに作成された投稿のrtボタンを押した後、本元の投稿の状態を変更したい"
+                            // リツイートした投稿のRTボタンを再度押すと元ツイからrt履歴を無くす
+                            post_data_ref.child(snapshot.val().id).update({rt_num: snapshot.val().rt_num - 1});
+                            post_data_ref.child(snapshot.val().id).update({rt_list: snapshot.val().rt_list.replace(login_user_id + ";", "")});
+                            changeIconColor(snapshot.val().id, "rt");
+                            // postsの情報を更新
+                            posts.some(function(v, i){
+                                if (v.id==snapshot.val().id) {
+                                    v.rt_list = snapshot.val().rt_list.replace(login_user_id + ";", "")
+                                    v.rt_num = snapshot.val().rt_num - 1;
+                                }
+                            });
+                            
+                            logging(login_user_id, "delete a rt", rt_by, "");
+                        } else {
+                            // ここで想定しているのは"rt後に本元の投稿のrtボタンを押した時、新たに作成された投稿と本元の両投稿を編集したい"
+                            // rt_byは新たに作成された投稿のID
+                            // ここで作るroot_idはrtされた本元の投稿のID
+                            var root_id = rt_by;
+                            var target_id = snapshot.val().rt_param;
+                            // 新たに作成された投稿を削除
+                            post_data_ref.child(target_id).remove();
+                            // 本元の投稿の情報を編集する
+                            post_data_ref.child(root_id).update({rt_num: snapshot.val().rt_num - 1});
+                            post_data_ref.child(root_id).update({rt_list: snapshot.val().rt_list.replace(login_user_id + ";", "")});
+                            changeIconColor(root_id, "rt");
+                            // 本元の投稿のrt_byをrt時に変更したのを元に戻す
+                            post_data_ref.child(root_id).update({rt_param: root_id});
+                            // postsの情報を更新
+                            posts.some(function(v, i){
+                                if (v.id==root_id) {
+                                    v.rt_list = v.rt_list.replace(login_user_id + ";", "")
+                                    v.rt_num = v.rt_num - 1;
+                                    v.rt_param = root_id;
+                                }
+                            });
+                            
+                            logging(login_user_id, "delete a rt", rt_by, "");
+                        }
+                    }
+                }
+            });
+        };
+        // ファボアイコンを押した時の動作
+        function fav(id) {
+            post_data_ref.child(String(id)).once('value', function(snapshot) {
+            // その投稿のリプライに自身のIDが無ければ追記
+                if(snapshot.val().fav_list.indexOf(login_user_id) == -1) {
+                    post_data_ref.child(String(id)).update({fav_num: snapshot.val().fav_num + 1});
+                    post_data_ref.child(String(id)).update({fav_list: snapshot.val().fav_list += login_user_id + ";"});
+                    
+                    posts.some(function(v, i){
+                        if (v.id==id) {
+                            v.fav_list = v.fav_list + login_user_id + ";";
+                            v.fav_num = v.fav_num + 1;
+                        }
+                    });
+                    logging(login_user_id, "fav", id, "");
+                } else {
+                    post_data_ref.child(String(id)).update({fav_num: snapshot.val().fav_num - 1});
+                    post_data_ref.child(String(id)).update({fav_list: snapshot.val().fav_list.replace(login_user_id + ";", "")});
+                    
+                    posts.some(function(v, i){
+                        if (v.id==id) {
+                            v.fav_list = v.fav_list.replace(login_user_id + ";", "")
+                            v.fav_num = v.fav_num - 1;
+                        }
+                    });
+                    logging(login_user_id, "cancel fav", id, "");
+                }
+                changeIconColor(id, "fav");
+            });
+        };
+        // 報告・登録アイコンを押した時の動作
+        function add_file(id) {
+            selected_id = id;
+            selected_text = document.getElementById("post_data-"+id).innerHTML;
+            
+            // dislikeアイコンの表示の設定
+            post_data_ref.child(String(id)).once('value', function(snapshot) {
+                post_data_ref.child(String(id)).update({dislike_num: snapshot.val().dislike_num + 1});
+            });
+            changeIconColor(id, "file");
+            
+            document.getElementById("id_input_regist_text").value = selected_text;
+            //document.getElementById("regist-text").innerText = "「" + document.getElementById("post_data-"+id).innerHTML + "」"
+            //    + "  を登録しますか？";
+            document.getElementById("regist-text").innerText = "を登録しますか？"
+            
+            // 投稿アイコンを非表示にする
+            document.getElementById("post_area").style.visibility = "hidden";
+            
+            $('.js-modal').fadeIn(fadeSpeed);
+            return false;
+        };
+        
+        
+        // 削除アイコンを押した場合その投稿を削除
+        function delete_post(id) {
+            //removePost(id);
+        }
+        
+        
+        // 押したことのあるアイコンだったら色を変える
+        function changeIconColor(id, icon) {
+            if(icon == "reply" || icon == "all") {
+                post_data_ref.child(String(id)).once('value', function(snapshot) {
+                    if(snapshot.val().reply_list.split(";").indexOf(login_user_id) != -1) {
+                        document.getElementById("bubble-"+id).setAttribute("style","background: url('https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Freply_color.svg?v=1581738049450') left no-repeat;");
+                    } else if(snapshot.val().reply_list.split(";").indexOf(login_user_id) == -1) {
+                        document.getElementById("bubble-"+id).setAttribute("style","background: url('https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Freply.svg?v=1581738049647') left no-repeat;");
+                    }
+                });
+            }
+            if (icon == "rt" || icon == "all") {
+                post_data_ref.child(String(id)).once('value', function(snapshot) {
+                    if(snapshot.val().rt_list.split(";").indexOf(login_user_id) != -1) {
+                        document.getElementById("loop-"+id).setAttribute("style","background: url('https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Frt_color.svg?v=1581738049889') left no-repeat;");
+                    } else if(snapshot.val().rt_list.split(";").indexOf(login_user_id) == -1) {
+                        document.getElementById("loop-"+id).setAttribute("style","background: url('https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Frt.svg?v=1581738050057') left no-repeat;");
+                    }
+                });
+            }
+            if(icon == "fav" || icon == "all") {
+                post_data_ref.child(String(id)).once('value', function(snapshot) {
+                    if(snapshot.val().fav_list.split(";").indexOf(login_user_id) != -1) {
+                        document.getElementById("heart-"+id).setAttribute("style","background: url('https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Ffav_color.svg?v=1581738047679') left no-repeat;");
+                    } else if(snapshot.val().fav_list.split(";").indexOf(login_user_id) == -1) {
+                        document.getElementById("heart-"+id).setAttribute("style","background: url('https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Ffav.svg?v=1581738047956') left no-repeat;");
+                    }
+                });
+            }
+            if(icon == "file" || icon == "all") {
+                post_data_ref.child(String(id)).once('value', function(snapshot) {
+                    if(snapshot.val().user_id != login_user_id) {
+                        document.getElementById("file-"+id).setAttribute("style","display: none;");
+                    } 
+                    /*
+                    else {
+                        if(snapshot.val().dislike_num >0 && snapshot.val().dislike_num < 4) {
+                            document.getElementById("file-"+id).setAttribute("style","background: url('https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Ffuck_color1.svg?v=1581738048057') left no-repeat;");
+                        } else if(snapshot.val().dislike_num >= 4 && snapshot.val().dislike_num < 8) {
+                            document.getElementById("file-"+id).setAttribute("style","background: url('https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Ffuck_color2.svg?v=1581738048272') left no-repeat;");
+                        } else if(snapshot.val().dislike_num >= 8 && snapshot.val().dislike_num < 11) {
+                            document.getElementById("file-"+id).setAttribute("style","background: url('https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Ffuck_color3.svg?v=1581738048480') left no-repeat;");
+                        } else if(snapshot.val().dislike_num >= 11 && snapshot.val().dislike_num < 100) {
+                            document.getElementById("file-"+id).setAttribute("style","background: url('https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Ffuck_color4.svg?v=1581738048662') left no-repeat;");
+                        } else if(snapshot.val().dislike_num >= 100) {
+                            document.getElementById("file-"+id).setAttribute("style","background: url('https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Ffuck_color4.svg?v=1581738048662') left no-repeat;");
+                        } else {
+                            document.getElementById("file-"+id).setAttribute("style","background: url('https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Ffuck.svg?v=1581738049063') left no-repeat;");
+                        }
+                    }
+                    */
+                });
+            }
+            if(icon == "check") {
+                document.getElementById("check-"+id).setAttribute("style","display: none;");
+            }
+        }
+      
+        // 画像をクリックしたときの処理
+        /*
+        function imgClick(pic) {
+          document.getElementById("large-pic").src = pic;
+            
+          // 投稿アイコンを非表示にする
+          document.getElementById("post_area").style.visibility = "hidden";
+            
+          $('.modal').fadeOut(fadeSpeed);
+          $('.pic-modal').fadeIn(fadeSpeed);
+          return false;
+        };
+        */
+        
+        // アイコンをクリックするとプロフィール画面へ移動
+        function showProfile(user_id) {
+            logging(login_user_id, "tap a icon(move to profile)", user_id, "");
+            // 画面遷移
+            document.cookie = 'user_id=' + login_user_id;
+            document.cookie = 'ref_userId=' + user_id;
+            location.href = '{% url "myapp:profile" %}';
+        };
+        
+        // ~分前を表示するための関数
+        function displayTime(unixTime) {
+            var date = new Date(unixTime)
+            var diff = new Date().getTime() - date.getTime()
+            var d = new Date(diff);
+
+            if (d.getUTCFullYear() - 1970) {
+                return d.getUTCFullYear() - 1970 + '年前';
+            } else if (d.getUTCMonth()) {
+                return d.getUTCMonth() + 'ヶ月前';
+            } else if (d.getUTCDate() - 1) {
+                return d.getUTCDate() - 1 + '日前';
+            } else if (d.getUTCHours()) {
+                return d.getUTCHours() + '時間前';
+            } else if (d.getUTCMinutes()) {
+                return d.getUTCMinutes() + '分前';
+            } else {
+                return d.getUTCSeconds() + '秒前';
+            }
+        };
+        
+        
+        // csrf_tokenの取得に使う
+        function getCookie(name) {
+            var cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                var cookies = document.cookie.split(';');
+                for (var i = 0; i < cookies.length; i++) {
+                    var cookie = jQuery.trim(cookies[i]);
+                    // Does this cookie string begin with the name we want?
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        
+        // ヘッダにcsrf_tokenを付与する関数
+        function csrfSafeMethod(method) {
+            // these HTTP methods do not require CSRF protection
+            return (/^(GET|HEAD|OPTIONS|TRACE)$/.test(method));
+        };
+        
+        // フォローフォームの表示
+        function following() {         
+            logging(login_user_id, "open a following form", "", "");
+            document.getElementById("follow-text").innerHTML = "フォローしたいユーザのIDを入力してください。";
+            
+            // 投稿アイコンを非表示にする
+            document.getElementById("post_area").style.visibility = "hidden";
+            
+            $('.modal').fadeOut(fadeSpeed);
+            $('.follow-modal').fadeIn(fadeSpeed);
+            return false;
+        };
+        // 入力したユーザをフォローリストに追加
+        function addFollowing() {
+            var input_user_id = $('#id_input_follow').val();
+            user_data_ref.child(login_user_id).once('value', function(snapshot) {
+                if(snapshot.val().follow_list.indexOf(input_user_id) !== -1){
+                    document.getElementById("follow-text").innerHTML = "既にフォローしています。<br>フォローしたいユーザのIDを入力してください。";
+                } else {
+                    user_data_ref.child(login_user_id)
+                        .update({follow_list: snapshot.val().follow_list + input_user_id + ";"});
+                    login_user_following.push(input_user_id);
+                    $('#id_input_follow').val("");
+                    document.getElementById("follow-text").innerHTML = input_user_id + " さんをフォローしました。";
+                    logging(login_user_id, "following", input_user_id, "");
+                    setTimeout(function() {
+                        document.getElementById("post_area").style.visibility = "visible";
+                        console.log(input_user_id + " is followed by you. >>" + snapshot.val().follow_list);
+                        console.log(login_user_following);
+                        window.location.reload();
+                        $('.follow-modal').fadeOut(fadeSpeed);
+                        return false;
+                    }, 1000);
+                }
+            });
+        };
+        // 入力したユーザをフォローリストから削除
+        function unFollowing() {
+            var input_user_id = $('#id_input_follow').val();
+            user_data_ref.child(login_user_id).once('value', function(snapshot) {
+                if(snapshot.val().follow_list.indexOf(input_user_id) !== -1){
+                    user_data_ref.child(login_user_id)
+                        .update({follow_list: snapshot.val().follow_list.replace(input_user_id + ";", "")});
+                    login_user_following = login_user_following.filter(function(user) {
+                        return user !== input_user_id;
+                    });
+                    $('#id_input_follow').val("");
+                    document.getElementById("follow-text").innerHTML = input_user_id + " さんをフォロー解除しました。";
+                    logging(login_user_id, "unfollow", input_user_id, "");
+                    setTimeout(function() {
+                        document.getElementById("post_area").style.visibility = "visible";
+                        console.log(input_user_id + " is unfollowed by you. >>" + snapshot.val().follow_list);
+                        console.log(login_user_following);
+                        $('.follow-modal').fadeOut(fadeSpeed);
+                        return false;
+                    }, 1000);
+                } else {
+                    document.getElementById("follow-text").innerHTML = "フォローしていないユーザです。<br>フォローしたいユーザのIDを入力してください。";
+                }
+            });
+        };
+        
+        // アイコンを変える
+        function change_icon() {
+            logging(login_user_id, "open a change icon form", "", "");
+            document.getElementById("icon-text").innerHTML = "アイコン用の画像を選択してください。";
+            
+            // 投稿アイコンを非表示にする
+            document.getElementById("post_area").style.visibility = "hidden";
+            
+            $('.modal').fadeOut(fadeSpeed);
+            $('.icon-modal').fadeIn(fadeSpeed);
+            return false;
+        };
+        function iconUpload() {
+            //画像のアップロード
+            var imgs = document.getElementById('iconfileUp');
+            var uploads = [];
+            
+            for (var file of imgs.files) {
+              //選択したファイルのファイル名を使うが、場合によってはかぶるので注意
+                var storageRef = firebase.storage().ref(login_user_id + '/icon/icon.png');
+                uploads.push(storageRef.put(file));
+                storageRef.getDownloadURL().then(function(url) {
+                    icon_url = url;
+                });
+            }
+            logging(login_user_id, "icon upload", "", "");
+            document.getElementById("post_area").style.visibility = "visible";
+            console.log(icon_url);
+        };
+        
+        // ユーザ名変更画面の表示
+        function change_user_name() {
+            logging(login_user_id, "open a change user name form", "", "");
+            document.getElementById("user_name-text").innerHTML = 
+                "ユーザ名を変更しますか？<br>" + "現在のユーザ名：" + login_user_name;
+            
+            // 投稿アイコンを非表示にする
+            document.getElementById("post_area").style.visibility = "hidden";
+            
+            $('.modal').fadeOut(fadeSpeed);
+            $('.user_name-modal').fadeIn(fadeSpeed);
+            return false;
+        };
+        // ユーザ名を変更する
+        function update_user_name() {
+            var input_user_name = $('#id_input_user_name').val();
+            user_data_ref.child(login_user_id).once('value', function(snapshot) {
+                if(input_user_name != "") {
+                    user_data_ref.child(login_user_id)
+                        .update({name: input_user_name});
+                    
+                    posts.forEach(function(pst) {
+                        if(pst.user_name == login_user_name) {
+                            post_data_ref.child(pst.id).update({user_name: input_user_name});
+                        }
+                    })
+                    posts.some(function(v, i){
+                        if (v.user_name==login_user_name) {
+                            v.user_name = input_user_name;
+                            $("#"+v.id).children(".name").children(".user_name").text(input_user_name);
+                        }
+                    });
+                    
+                    login_user_name = input_user_name;
+                    
+                    $('#id_input_user_name').val("");
+                    logging(login_user_id, "change an user name", "", "");
+                    document.getElementById("user_name-text").innerHTML = "ユーザ名を変更しました。";
+                    setTimeout(function() {
+                        document.getElementById("post_area").style.visibility = "visible";
+                        console.log("New user name: " + input_user_name);
+                        $('.user_name-modal').fadeOut(fadeSpeed);
+                        return false;
+                    }, 1000);
+                }
+            });
+        };
+        
+        // パスワード変更画面の表示
+        function change_password() {
+            logging(login_user_id, "open a change password form", "", "");
+            document.getElementById("pw-text").innerHTML = "パスワードを変更しますか？";
+            
+            // 投稿アイコンを非表示にする
+            document.getElementById("post_area").style.visibility = "hidden";
+            
+            $('.modal').fadeOut(fadeSpeed);
+            $('.pw-modal').fadeIn(fadeSpeed);
+            return false;
+        };
+        // パスワードを変更する
+        function update_password() {
+            var input_password = $('#id_input_pw').val();
+            user_data_ref.child(login_user_id).once('value', function(snapshot) {
+                if(input_password != "") {
+                    user_data_ref.child(login_user_id)
+                        .update({password: input_password});
+                    $('#id_input_pw').val("");
+                    logging(login_user_id, "change a password", "", "");
+                    document.getElementById("pw-text").innerHTML = "パスワードを変更しました。";
+                    setTimeout(function() {
+                        document.getElementById("post_area").style.visibility = "visible";
+                        console.log("New password: " + input_password);
+                        $('.pw-modal').fadeOut(fadeSpeed);
+                        return false;
+                    }, 1000);
+                }
+            });
+        };
+        
+        // ログアウト確認画面
+        function check_logout() {
+            logging(login_user_id, "open a logout form", "", "");
+            document.getElementById("logout-text").innerHTML = "ログアウトしますか？";
+            
+            // 投稿アイコンを非表示にする
+            document.getElementById("post_area").style.visibility = "hidden";
+            
+            $('.modal').fadeOut(fadeSpeed);
+            $('.logout-modal').fadeIn(fadeSpeed);
+            return false;
+        };
+        function logout() {
+            logging(login_user_id, "logout", "", "");
+            location.href = '{% url "myapp:index" %}';
+        };
+      
+        //指定した投稿の位置までスクロール
+        function ScrollToTweet(elem) {
+            if (elem) {
+                try {
+                    //document.getElementById('-M62uyknAz_A8Kxi1wSU').scrollIntoView(true);
+                    var $target = $('#'+elem),
+                    offset = $target.offset() || {top: 0, left: 0},
+                    outerHeight = $target.outerHeight();
+                    $(window).scrollTop(offset.top - (window.innerHeight - outerHeight) / 5);
+                    console.log("scroll");
+                } catch(e) {
+                    // エラー発生時はtopへ移動
+                    $('body, html').scrollTop(0);
+                    console.log("Error >> scroll to top");
+                }
+            } else {
+                // elemが空文字(last_checkが未設定)の場合は一番上へ
+                $('body, html').scrollTop(0);
+                console.log("scroll to top");
+            }
+        };
+      
+        // 一番上の投稿を見ているか判定する
+        $(window).scroll(function(){
+          var top = $("#check_top").offset().top; // ターゲットの位置取得
+          var position = top;  // 発火させたい位置
+          //  var position = top - $(window).height(); // 通常はこっち
+          if($(window).scrollTop() > position){
+            // console.log("not top");
+          }else{
+            scroll_check += 1;
+            if (scroll_check % 20 == 1) {
+              user_data_ref.child(login_user_id).once('value', function(snapshot) {
+                  user_data_ref.child(login_user_id).update({last_check: rt_ids.slice(-1)[0]});
+                  console.log("last_check updated.");
+              });
+            }
+          }
+            
+          // 画面内にある投稿のID取得&log記録用
+          scroll_check_whole += 1;
+          if (scroll_check_whole % 45 == 1) {
+              ids.forEach(function(value) {                  
+                  var scrollTop = $(window).scrollTop();
+                  var scrollBtm = scrollTop + $(window).height();
+                  var targetTop = $("#post_data-"+value).offset().top;
+                  var targetBtm = targetTop + $("#post_data-"+value).height();
+                  
+                  if(scrollBtm > targetTop && scrollTop < targetBtm){
+                      // console.log(value+" is in window");
+                      logging(login_user_id,"tweet in window",value,"");
+                  }else{
+                      // console.log("not top");
+                  }
+              })
+            }
+        });
+        
+        // 投稿をクリックしたらリプライの表示
+        $(document).click(function(event) {
+            if($(event.target).closest('.twitter__block-text').length) {
+                if($(event.target).attr("id").indexOf("id-in-pict") > -1) {
+                  logging(login_user_id, "tap a pic", $(event.target).attr("id").split("id-in-pict-")[1], "");
+                  document.getElementById("large-pic").src = $(event.target).attr("id").split("id-in-pict-")[1];
+                  // 投稿アイコンを非表示にする
+                  document.getElementById("post_area").style.visibility = "hidden";
+                  $('.modal').fadeOut(fadeSpeed);
+                  $('.pic-modal').fadeIn(fadeSpeed);
+                  return false;
+                } else if($(event.target).attr("id").charAt(0) == "-") {
+                  // クリックした投稿のIDを取得
+                  reply_post_id = $(event.target).attr("id");
+                  logging(login_user_id, "tap a tweet", $(event.target).attr("id"), "");
+                  // 投稿アイコンを非表示にする
+                  document.getElementById("post_area").style.visibility = "hidden";
+                  //ウィンドウの表示
+                  $('.modal').fadeOut(fadeSpeed);
+                  $('.postWindow-modal').fadeIn(fadeSpeed);
+                  // #postWindow-textの子要素(=投稿)を全て消去する
+                  let parent = document.getElementById('postWindow-text');
+                  while(parent.lastChild){
+                    parent.removeChild(parent.lastChild);
+                  }
+                  setPostData(posts.slice(), '#postWindow-text', "reply");
+                  return false;
+                }
+            }
+        
+        /*
+        $('.twitter__block-text').on('click', function(){
+          console.log("aaaaa");
+          if($(this).data('id') == "pic") {
+            document.getElementById("large-pic").src = pic;
+            // 投稿アイコンを非表示にする
+            document.getElementById("post_area").style.visibility = "hidden";
+
+            $('.modal').fadeOut(fadeSpeed);
+            $('.pic-modal').fadeIn(fadeSpeed);
+            return false;
+          } else {
+            // 投稿アイコンを非表示にする
+            document.getElementById("post_area").style.visibility = "hidden";
+            $('.modal').fadeOut(fadeSpeed);
+            $('.postWindow-modal').fadeIn(fadeSpeed);
+            return false;
+          }
+          */
+        });
+        
+    </script>
+    
+    
+    <!-- SNSの画面 -->
+    <div class="twitter__container">
+        
+    <!-- タイトル -->
+    <div class="twitter__title">
+        <span style="float:left;"></span>
+        <img style="float:left;padding-left:3vw;" id="icon_toTop" src="https://cdn.glitch.com/7b4129b7-87aa-4542-9c2a-57759a4debf2%2Fhome.png?v=1588141520925">
+        <img style="float:left;padding-left:3vw;" id="icon_search" src="https://cdn.glitch.com/7b4129b7-87aa-4542-9c2a-57759a4debf2%2Fsearch.png?v=1589090536622">
+        <img style="float:right;padding-right:5vw;" id="icon_menu" src="https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Fmenu.svg?v=1581737666857">
+        <span style="float:right;">&nbsp;</span>
+        <img style="float:right;padding-right:2vw;" id="icon_top">
+        <!--<span class="twitter-logo"></span>-->
+    </div>      
+    <!-- メニュー -->
+    <div class="twitter__menu" id="id_menu" style="visibility: hidden;">
+        <span style="font-size:90%; text-decoration: underline;" onclick="following()">フォローする</span>
+        <span style="font-size:90%; text-decoration: underline;" onclick="change_icon()">アイコンの変更</span>
+        <span style="font-size:90%; text-decoration: underline;" onclick="change_user_name()">ユーザ名の変更</span>
+        <span style="font-size:90%; text-decoration: underline;" onclick="change_password()">パスワードの変更</span><br>
+        <span style="font-size:90%; text-decoration: underline;" onclick="check_logout()">ログアウト</span>
+    </div>
+    <script>
+        // ホームアイコンを押したらトップに移動
+        $(document).click(function(event) {
+            if($(event.target).closest('#icon_toTop').length) {
+                logging(login_user_id, "tap a home icon", "", "");
+                ScrollToTweet();
+                // last_checkを更新
+                user_data_ref.child(login_user_id).once('value', function(snapshot) {
+                    user_data_ref.child(login_user_id).update({last_check: rt_ids.slice(-1)[0]});
+                    console.log("last_check updated.");
+                });
+            }
+        });
+        // 検索アイコンを押したら検索画面に移動
+        $(document).click(function(event) {
+            if($(event.target).closest('#icon_search').length) {
+                // last_checkを更新
+                user_data_ref.child(login_user_id).once('value', function(snapshot) {
+                    user_data_ref.child(login_user_id).update({last_check: rt_ids.slice(-1)[0]});
+                    console.log("last_check updated.");
+                });
+                logging(login_user_id, "move to search from sns", "", "");
+                // 画面遷移
+                document.cookie = 'user_id=' + login_user_id;
+                location.href = '{% url "myapp:search" %}';
+            }
+        });
+        
+        // メニューアイコンを押した時に下にメニューを表示する
+        $(document).click(function(event) {
+            if(document.getElementById("id_menu").style.visibility == "hidden") {
+               if($(event.target).closest('#icon_menu').length) {
+                    logging(login_user_id,"tap a menu icon","","");
+                    document.getElementById("id_menu").style.visibility = "visible";   
+                }
+            } else {
+                if(!$(event.target).closest('#id_menu').length) {
+                    document.getElementById("id_menu").style.visibility = "hidden";
+                }
+            }
+            
+            if(document.getElementById("post_area").style.visibility == "visible") {
+                if($(event.target).closest('#icon_post').length) {
+                    document.getElementById("post_area").style.visibility = "hidden";
+                    // リプライ時に使用する変数を初期化(=通常の投稿にする)
+                    reply_id = "";
+                    reply_user_id = "";
+                    $('.post-modal').fadeIn(fadeSpeed);
+                    return false;
+                }
+            }
+        });
+    </script>
+    <!-- IDの表示 -->
+    <div class="twitter__menu" id="id_user_id" style="visibility: hidden;">
+        <span style="font-size:90%; text-decoration: underline;" id="id_user_id_text"></span>
+    </div>
+    <script>
+        // アイコンを押した時に下にIDを表示する
+        $(document).click(function(event) {
+            if(document.getElementById("id_user_id").style.visibility == "hidden") {
+               if($(event.target).closest('#icon_top').length) {
+                    logging(login_user_id,"check self id","move to self profile","");
+                    document.cookie = 'user_id=' + login_user_id;
+                    document.cookie = 'ref_userId=' + login_user_id;
+                    location.href = '{% url "myapp:profile" %}';
+                    /*
+                    document.getElementById("id_user_id_text").innerHTML = 'Your ID: < ' + login_user_id + ' >';
+                    document.getElementById("id_user_id").style.visibility = "visible";
+                    */
+                }
+            } else {
+                if(!$(event.target).closest('#id_top').length) {
+                    document.getElementById("id_user_id").style.visibility = "hidden";
+                }
+            }
+        });
+    </script>
+    <br>
+        
+    <!-- ▼タイムラインエリア scrollを外すと高さ固定解除 -->
+    <div class="twitter__contents" style="padding-top:10px;" scroll>
+    <div id="check_top" style="visibility:hidden;height:1px;"></div>
+
+    <!-- 投稿表示エリア -->
+    <span id="messages"></span>
+    <script>
+        
+        // 受け取った投稿データを投稿日時が古い順にソート
+        function sortPostData(uploaded_posts) {
+            uploaded_posts.sort(function(a,b) {
+                if(a.update < b.update) return -1;
+                if(a.update > b.update) return 1;
+                return 0;
+            });
+            console.log("sorted");
+            return uploaded_posts;
+        };
+        
+        // 受け取った投稿データのうちフォローしているユーザの投稿のみ表示
+        // 引数は”何を(sorted_posts),どこに(tag),どの条件で(rule)”表示するか
+        function setPostData(sorted_posts, tag, rule="following") {
+            //console.log(sorted_posts);
+            var sorted_posts_copy = sorted_posts.slice();
+            
+            while(sorted_posts != []){
+                var pst = sorted_posts.shift();
+              
+                // 表示する投稿の条件を指定
+                // rule="following(default)": 自分の投稿とフォローしているユーザの投稿のみ表示
+                if(rule == "following") {
+                    if(login_user_following.indexOf(pst.user_id) >= 0 || pst.user_id == login_user_id) {
+                      setPosts(pst, tag);
+                      changeIconColor(pst.id, "all");
+                      if(pst.check_label == "0") {
+                          changeIconColor(pst.id, "check");
+                      }
+                      ScrollToTweet(login_user_last_check);
+                    }
+              
+                // rule="reply": 選択した投稿(reply_post_id)とそのリプライのみ表示
+                } else if(rule == "reply") {
+                    // 表示する投稿のみを格納する配列
+                    var reply_posts = [];
+                    if(pst.id == reply_post_id) {
+                        target_reply_id = pst.reply_post;
+                        sorted_posts_copy.forEach(function(pst_copy) {
+                            if(target_reply_id.indexOf(pst_copy.id) >= 0) {
+                                reply_posts.push(pst_copy);
+                              
+                            }
+                        })
+                    }
+                    // 投稿に対するリプライが古いもの順に下に表示されるようにする
+                    reply_posts.reverse().forEach(function(pst_copy) {
+                        setPosts(pst_copy, tag);
+                        changeIconColor(pst.id, "all");
+                        if(pst.check_label == "0") {
+                            changeIconColor(pst.id, "check");
+                        }
+                    })
+                
+                }
+            }
+            
+            // 表示処理
+            function setPosts(pst, tag) {  
+              if(pst.pic != ''){
+                  $('<span class="twitter__block">').html(`
+                      <figure>
+                          <img src=${pst.icon} onclick=showProfile("${pst.user_id}") />
+                      </figure>
+                      <div class="twitter__block-text" id="${pst.id}">
+                          <div class="name"><span class="user_name">${pst.user_name}</span><span class="name_reply">${"@"+pst.user_id}</span></div>
+                          <div class="date">
+                              <span id="date-${pst.id}" style="display:none">${pst.date}</span>
+                              <span id="date-${pst.id}-print">${displayTime(pst.date)}</span>
+                          </div>
+                          <div class="text" id="${pst.id}">
+                              <span id="post_data-${pst.id}">${pst.text}</span>
+
+                              <div class="in-pict" style="margin-top:10px;">
+                                  <img id="id-in-pict-${pst.pic}" src=${pst.pic} />
+                              </div>
+
+                              <span class="date_str" id="post_data-${pst.date_str}">${pst.date_str}</span>
+                          </div>
+                          <div class="twitter__icon">
+                              <span class="twitter-heart" id="heart-${pst.id}" onclick=fav("${pst.id}")> <span style="padding-left:5vh;margin-top:-1.0vw;">${pst.fav_num}</span> </span>
+                              <span class="twitter-loop" id="loop-${pst.id}" onclick=rt("${pst.rt_by}")> <span style="padding-left:5vh;margin-top:-1.0vw;">${pst.rt_num}</span> </span>
+                              <span class="twitter-bubble" id="bubble-${pst.id}" onclick=reply("${pst.id}","${pst.user_id}")> <span style="padding-left:5vh;margin-top:-1.0vw;">${pst.reply_num}</span> </span>
+                              <span class="twitter-file" id="file-${pst.id}" onclick=delete_post("${pst.id}")></span>
+                              <span class="twitter-check" id="check-${pst.id}"></span>
+                              <!--<span id="${pst.id}" style="display:none">${pst.id}</span>-->
+                          </div>
+                      </div>
+                  `).prependTo(tag);
+              }else{
+                  $('<span class="twitter__block">').html(`
+                      <figure>
+                          <img src=${pst.icon} onclick=showProfile("${pst.user_id}") />
+                      </figure>
+                      <div class="twitter__block-text" id="${pst.id}">
+                              <div class="name"><span class="user_name">${pst.user_name}</span><span class="name_reply">${"@"+pst.user_id}</span></div>
+                              <!--<span class="date" id="date-${pst.id}">${displayTime(pst.date)}</span>-->
+                              <div class="date">
+                                  <span id="date-${pst.id}" style="display:none">${pst.date}</span>
+                                  <span id="date-${pst.id}-print">${displayTime(pst.date)}</span>
+                              </div>
+                              <div class="text" id="${pst.id}">
+                                  <span id="post_data-${pst.id}">${pst.text}</span>
+                                  <br>
+                                  <span class="date_str" id="post_data-${pst.date_str}">${pst.date_str}</span>
+                                  <br>
+                              </div>
+                          </div>
+                          <div class="twitter__icon">
+                              <span class="twitter-heart" id="heart-${pst.id}" onclick=fav("${pst.id}")> <span style="padding-left:5vh;margin-top:-1.0vw;">${pst.fav_num}</span> </span>
+                              <span class="twitter-loop" id="loop-${pst.id}" onclick=rt("${pst.rt_by}")> <span style="padding-left:5vh;margin-top:-1.0vw;">${pst.rt_num}</span> </span>
+                              <span class="twitter-bubble" id="bubble-${pst.id}" onclick=reply("${pst.id}","${pst.user_id}")> <span style="padding-left:5vh;margin-top:-1.0vw;">${pst.reply_num}</span> </span>
+                              <span class="twitter-file" id="file-${pst.id}" onclick=delete_post("${pst.id}")></span>
+                              <span class="twitter-check" id="check-${pst.id}"></span>
+                              <!--<span id="${pst.id}" style="display:none">${pst.id}</span>-->
+                          </div>
+                      </div>
+                  `).prependTo(tag);
+                };
+                
+            }
+        
+        }
+      
+        /*
+        function setPostData(sorted_posts, tag) {
+            console.log(sorted_posts);
+            while(sorted_posts != []){
+                var pst = sorted_posts.shift();
+
+                if(login_user_following.indexOf(pst.user_id) >= 0 || pst.user_id == login_user_id) {
+                
+                    if(pst.pic != ''){
+                        $('<span class="twitter__block">').html(`
+                            <figure>
+                                <img src=${pst.icon} onclick=showProfile("${pst.user_id}") />
+                            </figure>
+                            <div class="twitter__block-text">
+                                <div class="name">${pst.user_name}<span class="name_reply">${"@"+pst.user_id}</span></div>
+                                <div class="date">
+                                    <span id="date-${pst.id}" style="display:none">${pst.date}</span>
+                                    <span id="date-${pst.id}-print">${displayTime(pst.date)}</span>
+                                </div>
+                                <div class="text" id="${pst.id}">
+                                    <span id="post_data-${pst.id}">${pst.text}</span>
+                                    
+                                    <div class="in-pict" style="margin-top:10px;">
+                                        <img id="id-in-pict-${pst.pic}" src=${pst.pic} />
+                                    </div>
+                                    
+                                    <span class="date_str" id="post_data-${pst.date_str}">${pst.date_str}</span>
+                                </div>
+                                <div class="twitter__icon">
+                                    <span class="twitter-heart" id="heart-${pst.id}" onclick=fav("${pst.id}")> <span style="padding-left:5vh;margin-top:-1.0vw;">${pst.fav_num}</span> </span>
+                                    <span class="twitter-loop" id="loop-${pst.id}" onclick=rt("${pst.rt_by}")> <span style="padding-left:5vh;margin-top:-1.0vw;">${pst.rt_num}</span> </span>
+                                    <span class="twitter-bubble" id="bubble-${pst.id}" onclick=reply("${pst.id}")> <span style="padding-left:5vh;margin-top:-1.0vw;">${pst.reply_num}</span> </span>
+                                    <span class="twitter-file" id="file-${pst.id}" onclick=add_file("${pst.id}")></span>
+                                    <span class="twitter-check" id="check-${pst.id}"></span>
+                                    <!--<span id="${pst.id}" style="display:none">${pst.id}</span>-->
+                                </div>
+                            </div>
+                        `).prependTo(tag);
+                    }else{
+                        $('<span class="twitter__block">').html(`
+                            <figure>
+                                <img src=${pst.icon} onclick=showProfile("${pst.user_id}") />
+                            </figure>
+                            <div class="twitter__block-text">
+                                <div class="name">${pst.user_name}<span class="name_reply">${"@"+pst.user_id}</span></div>
+                                    <!--<span class="date" id="date-${pst.id}">${displayTime(pst.date)}</span>-->
+                                    <div class="date">
+                                        <span id="date-${pst.id}" style="display:none">${pst.date}</span>
+                                        <span id="date-${pst.id}-print">${displayTime(pst.date)}</span>
+                                    </div>
+                                    <div class="text" id="${pst.id}">
+                                        <span id="post_data-${pst.id}">${pst.text}</span>
+                                        <br>
+                                        <span class="date_str" id="post_data-${pst.date_str}">${pst.date_str}</span>
+                                        <br>
+                                    </div>
+                                </div>
+                                <div class="twitter__icon">
+                                    <span class="twitter-heart" id="heart-${pst.id}" onclick=fav("${pst.id}")> <span style="padding-left:5vh;margin-top:-1.0vw;">${pst.fav_num}</span> </span>
+                                    <span class="twitter-loop" id="loop-${pst.id}" onclick=rt("${pst.rt_by}")> <span style="padding-left:5vh;margin-top:-1.0vw;">${pst.rt_num}</span> </span>
+                                    <span class="twitter-bubble" id="bubble-${pst.id}" onclick=reply("${pst.id}")> <span style="padding-left:5vh;margin-top:-1.0vw;">${pst.reply_num}</span> </span>
+                                    <span class="twitter-file" id="file-${pst.id}" onclick=add_file("${pst.id}")></span>
+                                    <span class="twitter-check" id="check-${pst.id}"></span>
+                                    <!--<span id="${pst.id}" style="display:none">${pst.id}</span>-->
+                                </div>
+                            </div>
+                        `).prependTo(tag);
+                    };
+                    changeIconColor(pst.id, "all");
+                    if(pst.check_label == "0") {
+                        changeIconColor(pst.id, "check");
+                    }
+                    ScrollToTweet(login_user_last_check);
+                };
+            };
+        };
+        */
+        
+        
+        // 既存メッセージを表示(以降は変化があるとそれが反映される。)
+        var getPost_num = 0;
+        var uploaded_posts = new Array();
+
+        // firebaseより投稿データを取得
+        post_data_ref.on('child_added', function(snapshot) {
+            var pst = snapshot.val();
+            console.log(pst);
+            ids.push(pst.id);
+            rt_ids.push(pst.rt_by);
+            posts.push(pst);
+            getPost_num += 1;
+            
+            // 授業で作ったやつの名残りだ気にすんな
+            pst.check_label = 0;
+                
+            uploaded_posts.push(pst);
+            console.log(uploaded_posts.length, getPost_num);
+
+            if(uploaded_posts.length == getPost_num) {
+                getPost_num = 0;
+                console.log("uploaded");
+
+                // 投稿日時が古い順にソート
+                var sorted_posts = sortPostData(uploaded_posts);              
+                // ソート後、投稿データを全て表示する
+                setPostData(sorted_posts, '#messages', "following");
+            };
+        });
+        
+    </script>
+        
+    <!-- 投稿ボタン -->
+    <div class="twitter__post" id="post_area" style="visibility:visible;height:1px;">
+        <img style="float:right;" id="icon_post" src="https://cdn.glitch.com/e1c0d2f2-58d3-4eae-9efc-d7cc024237e1%2Fpost.png?v=1581737766673">
+    </div>
+    
+    
+    </div>
+    <!--　▲タイムラインエリア ここまで -->
+        
+    </div>
+    
+    <!--投稿時の処理-->
+    <script>
+        function submit(){
+
+            //すべての画像のアップロード完了を待ってから投稿
+            var imgs = document.getElementById('fileUp');
+            var uploads = [];
+            var pic_url = "";
+            var dt = new Date();
+            var unixtime = dt.getTime();
+            var weeks = new Array('Sun','Mon','Tue','Wed','Thu','Fri','Sat');
+            var year = dt.getYear();
+            if(year < 2000) { year += 1900; }
+          
+            if(imgs.files.length == 0) {
+                console.log('アップロード完了');
+
+                var post_data_id = post_data_ref.push().key;
+                post_data_ref.child(String(post_data_id)).set({
+                    // name: $('#name').val(),
+                    id: String(post_data_id),
+                    icon: icon_url,
+                    user_name: login_user_name,
+                    user_id: login_user_id,
+                    date_str: year+"/"+String(dt.getMonth()+1)+"/"+dt.getDate()+"("+weeks[dt.getDay()]+") "+dt.getHours()+":"+dt.getMinutes(),
+                    date: unixtime,
+                    update: unixtime,
+                    text: reply_user_id + $('#id_input_post_text').val(),
+                    pic: pic_url,
+                    pic_name: "",
+                    reply_num: 0,
+                    rt_num: 0,
+                    fav_num: 0,
+                    reply_list: "",
+                    rt_list: "",
+                    fav_list: "",
+                    rt_by: String(post_data_id),
+                    rt_param: String(post_data_id),
+                    reply_post: String(post_data_id),
+                    reply_to: "",
+                    dislike_num: ""
+                });
+                $('#id_input_post_text').val("");
+                $('#fileUp').val("");
+                logging(login_user_id, "posted", post_data_id, "");
+              
+            } else {
+              for (var file of imgs.files) {
+                //選択したファイルのファイル名を使うが、場合によってはかぶるので注意
+                  var storageRef = firebase.storage().ref(login_user_id + '/images/' + file.name);
+                  uploads.push(storageRef.put(file));
+                  storageRef.getDownloadURL().then(function(url) {
+                      pic_url = url;
+                      console.log('アップロード完了');
+
+                      var post_data_id = post_data_ref.push().key;
+                      post_data_ref.child(String(post_data_id)).set({
+                          // name: $('#name').val(),
+                          id: String(post_data_id),
+                          icon: icon_url,
+                          user_name: login_user_name,
+                          user_id: login_user_id,
+                          date_str: year+"/"+String(dt.getMonth()+1)+"/"+dt.getDate()+"("+weeks[dt.getDay()]+") "+dt.getHours()+":"+dt.getMinutes(),
+                          date: unixtime,
+                          update: unixtime,
+                          text: reply_user_id + $('#id_input_post_text').val(),
+                          pic: pic_url,
+                          pic_name: file.name,
+                          reply_num: 0,
+                          rt_num: 0,
+                          fav_num: 0,
+                          reply_list: "",
+                          rt_list: "",
+                          fav_list: "",
+                          rt_by: String(post_data_id),
+                          rt_param: String(post_data_id),
+                          reply_post: String(post_data_id),
+                          reply_to: "",
+                          dislike_num: ""
+                      });
+                      $('#id_input_post_text').val("");
+                  });
+              }
+              $('#fileUp').val("");
+              logging(login_user_id, "posted", post_data_id, "");
+            };
+          
+            // リプライの時はリプライ先の投稿のreply_postに自身の投稿のIDを追記
+            if(reply_id) {
+                post_data_ref.child(String(reply_id)).once('value', function(snapshot) {
+                // その投稿のリプライに自身のIDが無ければ追記
+                    post_data_ref.child(String(reply_id)).update({reply_post: snapshot.val().reply_post + ";" + post_data_id});
+                    post_data_ref.child(String(reply_id)).update({reply_num: snapshot.val().reply_num + 1});
+                });
+                // どの投稿へのリプライかの情報を投稿したものの中に記録
+                post_data_ref.child(String(post_data_id)).once('value', function(snapshot) {
+                    post_data_ref.child(String(post_data_id)).update({reply_to: reply_id});
+                });
+                // postsの該当箇所をそれぞれ更新
+                posts.some(function(v, i){
+                    if (v.id==reply_id) {
+                        v.reply_post = v.reply_post + ";" + post_data_id;
+                        v.reply_num = v.reply_num + 1;
+                    }
+                    if (v.id==post_data_id) {
+                        v.reply_to = reply_id;
+                    }
+                });
+            }
+        };
+    </script>
+    
+    <!--表示更新処理-->
+    <script>
+        //firebase上でreply,rt,favの値が変化したら表示を更新
+        post_data_ref.on('child_changed', function(snapshot) {
+            var pst = snapshot.val();
+            var id = pst.id;
+            
+            document.getElementById("bubble-"+id).innerHTML = '<span style="padding-left:5vh;margin-top:-1.0vw;">' + pst.reply_num + '</span>';
+            changeIconColor(id, "reply");
+            document.getElementById("loop-"+id).innerHTML = '<span style="padding-left:5vh;margin-top:-1.0vw;">' + pst.rt_num + '</span>';
+            changeIconColor(id, "rt");
+            document.getElementById("heart-"+id).innerHTML = '<span style="padding-left:5vh;margin-top:-1.0vw;">' + pst.fav_num + '</span>';
+            changeIconColor(id, "fav");
+        });
+        
+        //経過時刻の表示を10秒ごとに更新(非表示にしている投稿時刻を取得しdisplayTimeで変換して表示させる)
+        var date_reflesh = function(){
+            ids.forEach(function(id){
+                document.getElementById("date-"+id+"-print").innerText = displayTime(Number(document.getElementById("date-"+id).textContent));
+            });
+        };
+        setInterval(date_reflesh, 5000);
+        
+    </script>
+    
+    <!-- 空のモーダル。好きなテキストを表示可 -->
+    <div class="modal modal_empty empty-modal">
+        <div class="modal__bg_empty empty-modal-close"></div>
+        <div class="modal__content_empty">
+            <div id="empty-text"></div>
+        </div><!--modal__inner-->
+    </div><!--modal-->
+    <script>
+        $('.empty-modal-close').on('click',function(){
+            // 投稿アイコンを表示する
+            document.getElementById("post_area").style.visibility = "visible";
+            
+            $('.empty-modal').fadeOut(fadeSpeed);
+            return false;
+        });
+    </script>
+    
+    <!-- 投稿フォーム -->
+    <div class="modal modal_post post-modal">
+        <div class="modal__bg_post post-modal-close"></div>
+        <div class="modal__content_post">
+            <textarea class="class_input_post_text" type="text" 
+                      id="id_input_post_text" name="name_input_post_text" style="width:80%;" rows="3"></textarea>
+            <div id="post-text"></div>
+            <input class="post-modal-fileUp" type="file" id="fileUp" accept="image/*" multiple="multiple" name="imgs[]" value="アップロード">
+            <button class="post-modal-close">キャンセル</button>
+            <button class="post-modal-close" onclick="submit()">投稿</button>
+        </div>
+    </div>
+    <script>    
+        $('.post-modal-close').on('click',function(){
+            // 投稿アイコンを表示する
+            document.getElementById("post_area").style.visibility = "visible";
+            
+            $('.post-modal').fadeOut(fadeSpeed);
+            return false;
+        });
+    </script>
+    
+    <!-- 誹謗中傷/マウンティング発言の選択と登録 -->
+    <div class="modal js-modal">
+        <div class="modal__bg js-modal-close"></div>
+        <div class="modal__content">
+            <textarea class="class_input_regist_text" type="text" 
+                      id="id_input_regist_text" name="name_input_regist_text" style="width:80%;" rows="3"></textarea>
+            <div id="regist-text"></div>
+            <button class="js-modal-close" href="">キャンセル</button>
+            <button class="js-modal-close" href="" onclick="regist_text()">登録</button>
+        </div><!--modal__inner-->
+    </div><!--modal-->
+    <script>
+        $('.js-modal-close').on('click',function(){
+            // 投稿アイコンを表示する
+            document.getElementById("post_area").style.visibility = "visible";
+            
+            $('.js-modal').fadeOut(fadeSpeed);
+            return false;
+        });
+    </script>
+    
+    <!-- フォローフォーム -->
+    <div class="modal modal_follow follow-modal">
+        <div class="modal__bg_follow follow-modal-close"></div>
+        <div class="modal__content_follow">
+            <div id="follow-text"></div>
+            <input class="class_input_follow" type="text" id="id_input_follow" name="name_input_follow" value="">
+            <button class="follow-modal-close">キャンセル</button>
+            <button class="follow-modal-close" onclick="unFollowing()">フォロー解除する</button>
+            <button class="follow-modal-close" onclick="addFollowing()">フォローする</button>
+        </div>
+    </div>
+    <script>    
+        $('.follow-modal-close').on('click',function(){
+            // 投稿アイコンを表示する
+            document.getElementById("post_area").style.visibility = "visible";
+            
+            $('.follow-modal').fadeOut(fadeSpeed);
+            return false;
+        });
+    </script>
+    
+    <!-- アイコン変更フォーム -->
+    <div class="modal modal_icon icon-modal">
+        <div class="modal__bg_icon icon-modal-close"></div>
+        <div class="modal__content_icon">
+            <div id="icon-text"></div>
+            <input type="file" class="icon-modal-fileUp" id="iconfileUp" accept="image/*" multiple="multiple" name="imgs[]" value="アップロード">
+            <button class="icon-modal-close">キャンセル</button>
+            <button class="icon-modal-close" onclick="iconUpload()">変更</button>
+        </div>
+    </div>
+    <script>    
+        $('.icon-modal-close').on('click',function(){
+            // 投稿アイコンを表示する
+            document.getElementById("post_area").style.visibility = "visible";
+            
+            $('.icon-modal').fadeOut(fadeSpeed);
+            return false;
+        });
+    </script>
+    
+    <!-- ユーザ名変更画面 -->
+    <div class="modal modal_user_name user_name-modal">
+        <div class="modal__bg_user_name user_name-modal-close"></div>
+        <div class="modal__content_user_name">
+            <div id="user_name-text"></div>
+            <input class="class_input_user_name" type="text" id="id_input_user_name" name="name_input_user_name" value="">
+            <button class="user_name_modal-close">キャンセル</button>
+            <button class="user_name_modal-close" onclick="update_user_name()">変更する</button>
+        </div>
+    </div>
+    <script>    
+        $('.user_name_modal-close').on('click',function(){
+            // 投稿アイコンを表示する
+            document.getElementById("post_area").style.visibility = "visible";
+            
+            $('.user_name-modal').fadeOut(fadeSpeed);
+            return false;
+        });
+    </script>
+    
+    <!-- パスワード変更画面 -->
+    <div class="modal modal_pw pw-modal">
+        <div class="modal__bg_pw pw-modal-close"></div>
+        <div class="modal__content_pw">
+            <div id="pw-text"></div>
+            <input class="class_input_pw" type="text" id="id_input_pw" name="name_input_pw" value="">
+            <button class="pw-modal-close">キャンセル</button>
+            <button class="pw-modal-close" onclick="update_password()">変更する</button>
+        </div>
+    </div>
+    <script>    
+        $('.pw-modal-close').on('click',function(){
+            // 投稿アイコンを表示する
+            document.getElementById("post_area").style.visibility = "visible";
+            
+            $('.pw-modal').fadeOut(fadeSpeed);
+            return false;
+        });
+    </script>
+  
+    <!-- ログアウト確認画面 -->
+    <div class="modal modal_logout logout-modal">
+        <div class="modal__bg_logout logout-modal-close"></div>
+        <div class="modal__content_logout">
+            <div id="logout-text"></div>
+            <button class="logout-modal-close">キャンセル</button>
+            <button class="logout-modal-close" onclick="logout()">ログアウトする</button>
+        </div>
+    </div>
+    <script>    
+        $('.logout-modal-close').on('click',function(){
+            // 投稿アイコンを表示する
+            document.getElementById("post_area").style.visibility = "visible";
+            
+            $('.logout-modal').fadeOut(fadeSpeed);
+            return false;
+        });
+    </script>
+  
+    <!-- 写真の拡大表示用のモーダル -->
+    <div class="modal modal_pic pic-modal">
+        <div class="modal__bg_pic pic-modal-close"></div>
+        <div class="modal__content_pic">
+            <img id="large-pic" /> <br>
+        </div><!--modal__inner-->
+    </div><!--modal-->
+    <script>
+        $('.pic-modal-close, #large-pic').on('click',function(){
+            // 投稿アイコンを表示する
+            document.getElementById("post_area").style.visibility = "visible";
+            
+            $('.pic-modal').fadeOut(fadeSpeed);
+            return false;
+        });
+    </script>
+  
+    <!-- 投稿の詳細表示用モーダルウィンドウ -->
+    <div class="modal modal_postWindow postWindow-modal">
+        <div class="modal__bg_postWindow postWindow-modal-close"></div>
+        <div class="modal__content_postWindow">
+          <div class="twitter__contents" style="padding-top:10px;" scroll>
+            <span id="postWindow-text"></span>
+               <script>
+                  /*
+                  var getPost_num = 0;
+                  var uploaded_posts = new Array();
+                 
+                  post_data_ref.on('child_added', function(snapshot) {
+                      var pst = snapshot.val();
+                      console.log(pst);
+                      ids.push(pst.id);
+                      rt_ids.push(pst.rt_by);
+                      posts.push(pst);
+                      getPost_num += 1;
+
+                      // 授業で作ったやつの名残りだ気にすんな
+                      pst.check_label = 0;
+
+                      uploaded_posts.push(pst);
+                      console.log(uploaded_posts.length, getPost_num);
+
+                      if(uploaded_posts.length == getPost_num) {
+                          getPost_num = 0;
+                          console.log("uploaded");
+
+                          // 投稿日時が古い順にソート
+                          var sorted_posts = sortPostData(uploaded_posts);              
+                          // ソート後、投稿データを全て表示する
+                          setPostData(sorted_posts, '#postWindow-text', "reply");
+                      };
+                  });
+                  */
+               </script>
+               </div>
+            <button class="postWindow-modal-close" id="id-postWindow-close">戻る</button>
+        </div>
+    </div>
+    <script>
+        $('.postWindow-modal-close').on('click',function(){
+            // 投稿アイコンを表示する
+            document.getElementById("post_area").style.visibility = "visible";
+            $('.postWindow-modal').fadeOut(fadeSpeed);
+            return false;
+        });
+    </script>
+    
+</body>
+    
+</html>
